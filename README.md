@@ -6,7 +6,14 @@ Python scripts for reading/writing odf and sod model files.
 
 # SOD (Storm3D) Model Utils
 #### SOD Parser
-Supported SOD Versions: 1.8 & 1.9 (might be also able to read: >1.61 & 1.7 --> just try it out if it works :shrug:)
+Supported SOD Versions: 1.8 & 1.9
+ 
+Might be able to read older versions, mileage may vary:
+ - Versions greater than 1.6001
+
+ 
+ Try it out and let me know :shrug:
+
 #### SOD Writer
 Supported SOD Versions: 1.8 & 1.9
 
@@ -19,4 +26,4 @@ For Blender Version: 2.8.x
 
 ### TODO:
 - [ ] add sod export capabilities
-- [ ] remove hacky import & make it a proper plugin
+- [ ] remove hacky import & make it a proper addon

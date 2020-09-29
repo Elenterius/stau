@@ -4,17 +4,17 @@
 __author__ = 'Elenterius'
 __version__ = '0.3'
 
+import sys
+# sys.path.append('"D:\\Program Files\\Blender Foundation\\Blender 2.81\\2.81\\scripts\\modules"')
 import bmesh
 import bpy
-import sys
 
-sys.path.append('"E:\\PycharmProjects\\stau\\sod_utils')
-from sod_utils.sod_io import SodParserAndWriter as SODReader
+sys.path.append('E:\\PycharmProjects\\stau\\sod_utils')
+from sod_utils.sod_io import SodIO, Sod
 
-sod_folder = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\SOD'
 texture_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\Textures\\RGB'
 file_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\SOD\\Fbattle.sod'
-sod_reader = SODReader(sod_folder, texture_path)
+sod_reader = SodIO()
 sod = sod_reader.read_file(file_path)
 
 
@@ -30,20 +30,20 @@ def set_view3d_shading(mode="SOLID", screens=[]):
 class SodImporter:
     materials = {}
 
-    def __init__(self, sod):
-        if 'materials' in sod.keys():
+    def __init__(self, sod: Sod):
+        if sod.materials:
             mat_id = 0
-            for material in sod['materials']:
+            for material in sod.materials:
                 material['material_id'] = mat_id
                 material['diffuse_color'].append(1)  # add alpha
                 self.materials[material['name']] = material
                 mat_id += 1
 
-        self.object_name = sod['file_name'].lower().replace('.sod', '')
+        self.object_name = sod.name.lower().replace('.sod', '')
 
         # extract nodes with mesh
         # works with flat hierarchy (Armada II only for now) //TODO: discover all nodes #
-        mesh_nodes = list(filter(lambda x: x['type'] == 'MESH', sod['nodes']))
+        mesh_nodes = list(filter(lambda x: x['type'] == 'MESH', sod.nodes))
         n_meshes = len(mesh_nodes)
 
         if n_meshes == 0:
@@ -64,7 +64,7 @@ class SodImporter:
 
         #     print('picked mesh with lod: ', curr_lod)
 
-        self.nodes = sod['nodes']
+        self.nodes = sod.nodes
 
     def get_lod_from(self, mesh_node):
         lod_from_parent = self.parse_lod_level(mesh_node['parent'])
@@ -78,7 +78,7 @@ class SodImporter:
                 return 0
             try:
                 return int(lod)
-            except Exception as e:
+            except ValueError as e:
                 return 99
         else:
             # raise Exception('InvalidNodeTypeError')
@@ -102,7 +102,7 @@ class SodImporter:
         vert_lgroups = mesh_node['data']['vertex_lighting_groups']
 
         faces = []
-        tex_indicies = []
+        tex_indices = []
 
         for vert_lgroup in vert_lgroups:
 
@@ -122,7 +122,7 @@ class SodImporter:
                     f.append(i[0])
                     t.append(i[1])
                 faces.append(f)
-                tex_indicies.append(t)
+                tex_indices.append(t)
 
             # # mesh
             # mesh = self.createMesh(self.object_name, vertices, faces)
@@ -143,23 +143,23 @@ class SodImporter:
         obj.location = [pos_xyz[0], pos_xyz[2], pos_xyz[1]]
 
         # uvs
-        self.create_uv_map(mesh, mesh_node['id'] + '_uvmap', uvs, faces, tex_indicies)
+        self.create_uv_map(mesh, mesh_node['id'] + '_uvmap', uvs, faces, tex_indices)
 
         # create material slots
         for i in range(len(self.materials)):
-            mesh.materials.append(None)
+            mesh.__materials.append(None)
 
         # materials
         for material in self.materials.values():
             color = material['diffuse_color']
             mat = self.create_material(mesh_node['id'] + '_mat_' + material['name'], rgba=color, texture=tex)
-            mesh.materials[material['material_id']] = mat
+            mesh.__materials[material['material_id']] = mat
 
         # append extra borg material
         for material in self.materials.values():
             color = material['diffuse_color']
             mat_base_borgified = self.create_material(mesh_node['id'] + '_mat_' + material['name'] + '_borgified', rgba=color, texture=tex_borg)
-            mesh.materials.append(mat_base_borgified)
+            mesh.__materials.append(mat_base_borgified)
 
         return obj
 
@@ -194,36 +194,36 @@ class SodImporter:
         return bpy.data.images.load(file_name)
 
     def create_material(self, mat_name, rgba=None, texture=None):
-        mat = bpy.data.materials.new(name=mat_name)
+        mat = bpy.data.__materials.new(name=mat_name)
         mat.use_nodes = True
-        mat.node_tree.nodes.remove(mat.node_tree.nodes['Principled BSDF'])
+        mat.node_tree._nodes.remove(mat.node_tree._nodes['Principled BSDF'])
         mat.blend_method = 'OPAQUE'  # default -> OPAQUE
         mat.use_backface_culling = False  # default -> False
 
-        material_output = mat.node_tree.nodes.get('Material Output')
+        material_output = mat.node_tree._nodes.get('Material Output')
         location = material_output.location
 
         offset = 200
         if rgba and texture is None:
-            diffuse = mat.node_tree.nodes.new('ShaderNodeBsdfDiffuse')
+            diffuse = mat.node_tree._nodes.new('ShaderNodeBsdfDiffuse')
             diffuse.location = (location[0] - offset, location[1])
             diffuse.inputs['Color'].default_value = rgba
             mat.node_tree.links.new(material_output.inputs['Surface'], diffuse.outputs['BSDF'])
             return mat
 
         if texture:
-            tex_image = mat.node_tree.nodes.new('ShaderNodeTexImage')
+            tex_image = mat.node_tree._nodes.new('ShaderNodeTexImage')
             tex_image.location = (location[0] - offset * 4 - 50, location[1])
             tex_image.image = self.get_image(texture)
             tex_image.interpolation = 'Closest'
 
             # glowing stuff
-            emission = mat.node_tree.nodes.new('ShaderNodeEmission')
+            emission = mat.node_tree._nodes.new('ShaderNodeEmission')
             emission.location = (location[0] - offset * 2, location[1] + 50)
             mat.node_tree.links.new(emission.inputs['Color'], tex_image.outputs['Color'])
             mat.node_tree.links.new(emission.inputs['Strength'], tex_image.outputs['Alpha'])
 
-            add_shader = mat.node_tree.nodes.new('ShaderNodeAddShader')
+            add_shader = mat.node_tree._nodes.new('ShaderNodeAddShader')
             add_shader.location = (location[0] - offset, location[1])
             mat.node_tree.links.new(material_output.inputs['Surface'], add_shader.outputs['Shader'])
             mat.node_tree.links.new(add_shader.inputs[0], emission.outputs['Emission'])
@@ -231,13 +231,13 @@ class SodImporter:
             if rgba is None:
                 mat.node_tree.links.new(add_shader.inputs[1], tex_image.outputs['Color'])
             else:
-                mix_rgb = mat.node_tree.nodes.new('ShaderNodeMixRGB')
+                mix_rgb = mat.node_tree._nodes.new('ShaderNodeMixRGB')
                 mix_rgb.location = (location[0] - offset * 3 + 50, location[1] - 100)
                 mix_rgb.blend_type = 'OVERLAY'
                 mix_rgb.inputs['Fac'].default_value = 1
                 mix_rgb.inputs['Color2'].default_value = rgba
 
-                diffuse = mat.node_tree.nodes.new('ShaderNodeBsdfDiffuse')
+                diffuse = mat.node_tree._nodes.new('ShaderNodeBsdfDiffuse')
                 diffuse.location = (location[0] - offset * 2, location[1] - 100)
 
                 mat.node_tree.links.new(mix_rgb.inputs['Color1'], tex_image.outputs['Color'])
