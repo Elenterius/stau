@@ -1,36 +1,79 @@
-#!/usr/bin/env python3
-
-# SOD Importer for Blender 2.8x
-__author__ = 'Elenterius'
-__version__ = '0.3'
-
-import sys
-# sys.path.append('"D:\\Program Files\\Blender Foundation\\Blender 2.81\\2.81\\scripts\\modules"')
-import bmesh
+# noinspection PyUnresolvedReferences
 import bpy
+# noinspection PyUnresolvedReferences
+import bmesh
+# noinspection PyUnresolvedReferences
+from bpy.props import StringProperty, BoolProperty, EnumProperty
+# noinspection PyUnresolvedReferences
+from bpy.types import Operator
+# noinspection PyUnresolvedReferences
+from bpy_extras.io_utils import ImportHelper  # ImportHelper is a helper class, defines filename and invoke() function which calls the file selector.
+from .stau_sod_io import *
+from .stau_utils import *
 
-sys.path.append('E:\\PycharmProjects\\stau\\sod_utils')
-from sod_utils.sod_io import SodIO, Sod
 
-texture_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\Textures\\RGB'
-file_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\SOD\\Fbattle.sod'
-sod_reader = SodIO()
-sod = sod_reader.read_file(file_path)
+class ImportSodData(Operator, ImportHelper):
+    """This appears in the tooltip of the operator and in the generated docs"""
+    bl_idname = "import_test.sod_data"  # important since its how bpy.ops.import_test.sod_data is constructed
+    bl_label = "Import SOD Data"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".sod"
+
+    filter_glob: StringProperty(
+        default="*.sod",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    # List of operator properties, the attributes will be assigned
+    # to the class instance from the operator settings before calling.
+    use_setting: BoolProperty(
+        name="Example Boolean",
+        description="Example Tooltip",
+        default=True,
+    )
+
+    type: EnumProperty(
+        name="Example Enum",
+        description="Choose between two items",
+        items=(
+            ('OPT_A', "First Option", "Description one"),
+            ('OPT_B', "Second Option", "Description two"),
+        ),
+        default='OPT_A',
+    )
+
+    def execute(self, context):
+        return read_sod_data(context, self.filepath, self.use_setting)
 
 
-def set_view3d_shading(mode="SOLID", screens=[]):
-    screens = screens if screens else [bpy.context.screen]
-    for s in screens:
-        for spc in s.areas:
-            if spc.type == "VIEW_3D":
-                spc.spaces[0].shading.type = mode
-                break
+def read_sod_data(context, filepath, use_setting):
+    print("reading sod data...")
+
+    print("use_setting")
+    print(use_setting)
+
+    sod_parser = SodIO()
+    sod: Sod = sod_parser.read_file(filepath)
+
+    # TODO: get texture folder path
+    texture_folder = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\Textures\\RGB'
+
+    print("adding model to scene...")
+    sod_importer = SodImporter(sod, texture_folder)
+    sod_importer.build_scene_tree()
+    set_view3d_shading('MATERIAL')  # MATERIAL, RENDERED
+
+    return {'FINISHED'}
 
 
 class SodImporter:
     materials = {}
 
-    def __init__(self, sod: Sod):
+    def __init__(self, sod: Sod, texture_folder: str):
+        self.texture_folder = texture_folder
+
         if sod.materials:
             mat_id = 0
             for material in sod.materials:
@@ -92,39 +135,41 @@ class SodImporter:
         lod = self.get_lod_from(mesh_node)
         suffix = '.tga' if lod in [0, 1, 99] else '_' + str(lod) + '.tga'
 
-        tex = mesh_node['data']['texture'] + suffix
-        tex_borg = mesh_node['data']['borgification']['texture'] + suffix
+        tex = self.texture_folder + "\\" + mesh_node['data']['texture'] + suffix
+        tex_borg = self.texture_folder + "\\" + mesh_node['data']['borgification']['texture'] + suffix
 
         vertices = mesh_node['data']['vertices']
         uvs = mesh_node['data']['texture_coordinates']
 
         # vertex faces
-        vert_lgroups = mesh_node['data']['vertex_lighting_groups']
-
+        vertex_lighting_groups = mesh_node['data']['vertex_lighting_groups']
         faces = []
         tex_indices = []
 
-        for vert_lgroup in vert_lgroups:
+        for vlg in vertex_lighting_groups:
 
-            vert_faces = vert_lgroup['faces']
-
-            l_material_name = vert_lgroup['lighting_material']
+            vertex_faces = vlg['faces']
+            l_material_name = vlg['lighting_material']
 
             material = self.materials[l_material_name]
             min_index = len(faces)
             material['min_face_index'] = min_index
-            material['max_face_index'] = min_index + len(vert_faces)
+            material['max_face_index'] = min_index + len(vertex_faces)
 
-            for vface in vert_faces:
-                f = []
-                t = []
-                for i in vface:
-                    f.append(i[0])
-                    t.append(i[1])
-                faces.append(f)
-                tex_indices.append(t)
+            # faces_, tex_indices_ = self.__split_into_vertex_and_texture_indices(vertex_faces)
+            # faces.extend(faces_)
+            # tex_indices.extend(tex_indices_)
 
-            # # mesh
+            for vertex_face in vertex_faces:
+                faces_ = []
+                tex_indices_ = []
+                for f_tx_i in vertex_face:
+                    faces_.append(f_tx_i[0])
+                    tex_indices_.append(f_tx_i[1])
+                faces.append(faces_)
+                tex_indices.append(tex_indices_)
+
+            # mesh
             # mesh = self.createMesh(self.object_name, vertices, faces)
 
             # # uvs
@@ -163,17 +208,17 @@ class SodImporter:
 
         return obj
 
-    def __split_into_vertex_and_texture_indicies(self, vertex_faces):
+    def __split_into_vertex_and_texture_indices(self, vertex_faces):
         faces = []
         tex_indices = []
-        for vface in vertex_faces:
-            f = []
-            t = []
-            for i in vface:
-                f.append(i[0])
-                t.append(i[1])
-            faces.append(f)
-            tex_indices.append(t)
+        for vertex_face in vertex_faces:
+            face = []
+            tex_index = []
+            for i in vertex_face:
+                face.append(i[0])
+                tex_index.append(i[1])
+            faces.append(face)
+            tex_indices.append(tex_index)
         return faces, tex_indices
 
     def get_material_id_from_face_index(self, face_index):
@@ -322,8 +367,3 @@ class SodImporter:
 
             if node['id'] in nodes_by_parent.keys():
                 self.build_hierarchy(node['id'], nodes_by_parent, obj_tree)
-
-
-importer = SodImporter(sod)
-importer.build_scene_tree()
-set_view3d_shading('MATERIAL')  # MATERIAL, RENDERED

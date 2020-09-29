@@ -18,12 +18,12 @@ def test_sod_reader_writer_1():
     sod = sod_io.read_file(file_path)
     print(f"finished parsing in {time.process_time_ns() - start_time}ns")
 
-    with open('dump/fbattle.json', 'w') as outfile:
+    with open('../dump/fbattle.json', 'w') as outfile:
         json.dump(sod.to_dict(), outfile)
 
     print("=== testing sod writer ===")
     start_time = time.process_time_ns()
-    sod_io.write_file(sod, 'dump/fbattle.sod')
+    sod_io.write_file(sod, '../dump/fbattle.sod')
     print(f"finished writing in {time.process_time_ns() - start_time}ns")
 
 
@@ -33,15 +33,15 @@ def test_sod_reader_writer_2():
 
     sod_io = sodio.SodIO()
     start_time = time.process_time_ns()
-    sod = sod_io.read_file('dump/fbattle.sod')
+    sod = sod_io.read_file('../dump/fbattle.sod')
     print(f"finished parsing in {time.process_time_ns() - start_time}ns")
 
-    with open('dump/fbattle2.json', 'w') as outfile:
+    with open('../dump/fbattle2.json', 'w') as outfile:
         json.dump(sod.to_dict(), outfile)
 
     print("=== testing sod writer ===")
     start_time = time.process_time_ns()
-    sod_io.write_file(sod, 'dump/fbattle2.sod')
+    sod_io.write_file(sod, '../dump/fbattle2.sod')
     print(f"finished writing in {time.process_time_ns() - start_time}ns")
 
 
