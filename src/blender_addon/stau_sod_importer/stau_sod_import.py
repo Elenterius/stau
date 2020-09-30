@@ -13,8 +13,8 @@ from .stau_utils import *
 
 
 class ImportSodData(Operator, ImportHelper):
-    """This appears in the tooltip of the operator and in the generated docs"""
-    bl_idname = "import_test.sod_data"  # important since its how bpy.ops.import_test.sod_data is constructed
+    """Import SOD model files from Star Trek Armada I & II"""
+    bl_idname = "import_file.sod_data"
     bl_label = "Import SOD Data"
 
     # ImportHelper mixin class uses this
@@ -28,31 +28,23 @@ class ImportSodData(Operator, ImportHelper):
 
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
-    use_setting: BoolProperty(
-        name="Example Boolean",
-        description="Example Tooltip",
-        default=True,
-    )
 
-    type: EnumProperty(
-        name="Example Enum",
-        description="Choose between two items",
-        items=(
-            ('OPT_A', "First Option", "Description one"),
-            ('OPT_B', "Second Option", "Description two"),
-        ),
-        default='OPT_A',
+    # TODO: add this somewhere else (can't open file selector inside file selector)
+    texture_path: StringProperty(
+        name="Texture Folder",
+        description="Folder containing the textures for the sod model",
+        subtype='DIR_PATH'
     )
 
     def execute(self, context):
-        return read_sod_data(context, self.filepath, self.use_setting)
+        return read_sod_data(context, self.filepath, self.texture_path)
 
 
-def read_sod_data(context, filepath, use_setting):
+def read_sod_data(context, filepath, texture_path):
     print("reading sod data...")
 
-    print("use_setting")
-    print(use_setting)
+    print("context", context)
+    print("texture_folder", texture_path)
 
     sod_parser = SodIO()
     sod: Sod = sod_parser.read_file(filepath)
@@ -191,20 +183,21 @@ class SodImporter:
         self.create_uv_map(mesh, mesh_node['id'] + '_uvmap', uvs, faces, tex_indices)
 
         # create material slots
-        for i in range(len(self.materials)):
-            mesh.__materials.append(None)
+        # for i in range(len(self.materials)):
+        #     mesh.materials.append(None)
 
         # materials
-        for material in self.materials.values():
-            color = material['diffuse_color']
-            mat = self.create_material(mesh_node['id'] + '_mat_' + material['name'], rgba=color, texture=tex)
-            mesh.__materials[material['material_id']] = mat
+        for material_data in self.materials.values():
+            color = material_data['diffuse_color']
+            material = self.create_material(mesh_node['id'] + '_mat_' + material_data['name'], rgba=color, texture=tex)
+            # mesh.materials[material['material_id']] = mat
+            mesh.materials.append(material)
 
         # append extra borg material
-        for material in self.materials.values():
-            color = material['diffuse_color']
-            mat_base_borgified = self.create_material(mesh_node['id'] + '_mat_' + material['name'] + '_borgified', rgba=color, texture=tex_borg)
-            mesh.__materials.append(mat_base_borgified)
+        for material_data in self.materials.values():
+            color = material_data['diffuse_color']
+            mat_base_borgified = self.create_material(mesh_node['id'] + '_mat_' + material_data['name'] + '_borgified', rgba=color, texture=tex_borg)
+            mesh.materials.append(mat_base_borgified)
 
         return obj
 
@@ -239,57 +232,57 @@ class SodImporter:
         return bpy.data.images.load(file_name)
 
     def create_material(self, mat_name, rgba=None, texture=None):
-        mat = bpy.data.__materials.new(name=mat_name)
-        mat.use_nodes = True
-        mat.node_tree._nodes.remove(mat.node_tree._nodes['Principled BSDF'])
-        mat.blend_method = 'OPAQUE'  # default -> OPAQUE
-        mat.use_backface_culling = False  # default -> False
+        material = bpy.data.materials.new(mat_name)
+        material.use_nodes = True
+        material.node_tree.nodes.remove(material.node_tree.nodes['Principled BSDF'])
+        material.blend_method = 'OPAQUE'  # default -> OPAQUE
+        material.use_backface_culling = False  # default -> False
 
-        material_output = mat.node_tree._nodes.get('Material Output')
+        material_output = material.node_tree.nodes.get('Material Output')
         location = material_output.location
 
         offset = 200
         if rgba and texture is None:
-            diffuse = mat.node_tree._nodes.new('ShaderNodeBsdfDiffuse')
+            diffuse = material.node_tree.nodes.new('ShaderNodeBsdfDiffuse')
             diffuse.location = (location[0] - offset, location[1])
             diffuse.inputs['Color'].default_value = rgba
-            mat.node_tree.links.new(material_output.inputs['Surface'], diffuse.outputs['BSDF'])
-            return mat
+            material.node_tree.links.new(material_output.inputs['Surface'], diffuse.outputs['BSDF'])
+            return material
 
         if texture:
-            tex_image = mat.node_tree._nodes.new('ShaderNodeTexImage')
+            tex_image = material.node_tree.nodes.new('ShaderNodeTexImage')
             tex_image.location = (location[0] - offset * 4 - 50, location[1])
             tex_image.image = self.get_image(texture)
             tex_image.interpolation = 'Closest'
 
             # glowing stuff
-            emission = mat.node_tree._nodes.new('ShaderNodeEmission')
+            emission = material.node_tree.nodes.new('ShaderNodeEmission')
             emission.location = (location[0] - offset * 2, location[1] + 50)
-            mat.node_tree.links.new(emission.inputs['Color'], tex_image.outputs['Color'])
-            mat.node_tree.links.new(emission.inputs['Strength'], tex_image.outputs['Alpha'])
+            material.node_tree.links.new(emission.inputs['Color'], tex_image.outputs['Color'])
+            material.node_tree.links.new(emission.inputs['Strength'], tex_image.outputs['Alpha'])
 
-            add_shader = mat.node_tree._nodes.new('ShaderNodeAddShader')
+            add_shader = material.node_tree.nodes.new('ShaderNodeAddShader')
             add_shader.location = (location[0] - offset, location[1])
-            mat.node_tree.links.new(material_output.inputs['Surface'], add_shader.outputs['Shader'])
-            mat.node_tree.links.new(add_shader.inputs[0], emission.outputs['Emission'])
+            material.node_tree.links.new(material_output.inputs['Surface'], add_shader.outputs['Shader'])
+            material.node_tree.links.new(add_shader.inputs[0], emission.outputs['Emission'])
 
             if rgba is None:
-                mat.node_tree.links.new(add_shader.inputs[1], tex_image.outputs['Color'])
+                material.node_tree.links.new(add_shader.inputs[1], tex_image.outputs['Color'])
             else:
-                mix_rgb = mat.node_tree._nodes.new('ShaderNodeMixRGB')
+                mix_rgb = material.node_tree.nodes.new('ShaderNodeMixRGB')
                 mix_rgb.location = (location[0] - offset * 3 + 50, location[1] - 100)
                 mix_rgb.blend_type = 'OVERLAY'
                 mix_rgb.inputs['Fac'].default_value = 1
                 mix_rgb.inputs['Color2'].default_value = rgba
 
-                diffuse = mat.node_tree._nodes.new('ShaderNodeBsdfDiffuse')
+                diffuse = material.node_tree.nodes.new('ShaderNodeBsdfDiffuse')
                 diffuse.location = (location[0] - offset * 2, location[1] - 100)
 
-                mat.node_tree.links.new(mix_rgb.inputs['Color1'], tex_image.outputs['Color'])
-                mat.node_tree.links.new(diffuse.inputs['Color'], mix_rgb.outputs['Color'])
-                mat.node_tree.links.new(add_shader.inputs[1], diffuse.outputs['BSDF'])
+                material.node_tree.links.new(mix_rgb.inputs['Color1'], tex_image.outputs['Color'])
+                material.node_tree.links.new(diffuse.inputs['Color'], mix_rgb.outputs['Color'])
+                material.node_tree.links.new(add_shader.inputs[1], diffuse.outputs['BSDF'])
 
-        return mat
+        return material
 
     def create_uv_map(self, mesh, name, uvs, faces, tex_indices):
         mesh.uv_layers.new(name=name)

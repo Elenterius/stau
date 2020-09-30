@@ -1,10 +1,6 @@
 # Star Trek Armada Python Utilities
 Python scripts for reading/writing odf and sod model files.
 
-# ODF Files
-#### ODF Parser
-Returns a dict containing the compiled result of an odf including all parent odfs.
-
 # Storm3D SOD (.sod) Files
 ### SodIO - read & write sod files
 ```python
@@ -25,12 +21,16 @@ with open('../dump/fbattle.json', 'w') as outfile:
 # write sod obj to file
 sod_io.write_file(sod, '../dump/fbattle.sod')
 ```
-Supported SOD Versions: 1.8 & 1.9
+Supported SOD Versions:
+- 1.61 maybe?
+- 1.7 maybe?
+- 1.8
+- 1.90, 1.91, 1.92, 1.93
  
-Might be able to read other versions, mileage may vary :shrug:
- - Versions should be greater than 1.6001
+mileage may vary :shrug:
  
- Try it out and let me know what works.
+Try it out and let me know what works.
+
 ### Blender Addon
 Import SOD models with all the hardpoints, etc.
 
@@ -39,3 +39,7 @@ Blender Version: 2.8.x
 ##### TODO:
 - [ ] add sod export capabilities
 - [ ] remove hacky import & make it a proper addon
+
+# ODF Files
+#### ODF Parser
+Returns a dict containing the compiled result of an odf including all parent odfs.
