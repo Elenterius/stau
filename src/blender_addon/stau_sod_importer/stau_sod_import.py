@@ -80,6 +80,7 @@ class SodImporter:
         # works with flat hierarchy (Armada II only for now) //TODO: discover all nodes #
         mesh_nodes = list(filter(lambda x: x['type'] == 'MESH', sod.nodes))
         n_meshes = len(mesh_nodes)
+        print(f'found {n_meshes} meshes')
 
         if n_meshes == 0:
             raise print('Warning: no mesh was found')
@@ -325,7 +326,7 @@ class SodImporter:
         obj_tree = {}
         scene_root_node = None
 
-        cached_nodes_by_parent = {}
+        nodes_by_parent = {}
         for node in self.nodes:
 
             if node['parent'] == '':  # Scene Root
@@ -334,18 +335,18 @@ class SodImporter:
                 obj_tree[node['id']] = node_obj
                 continue
 
-            if node['parent'] not in cached_nodes_by_parent.keys():
-                cached_nodes_by_parent[node['parent']] = []
+            if node['parent'] not in nodes_by_parent.keys():
+                nodes_by_parent[node['parent']] = []
 
-            cached_nodes_by_parent[node['parent']].append(node)
+            nodes_by_parent[node['parent']].append(node)
 
-        for node in cached_nodes_by_parent[scene_root_node]:
+        for node in nodes_by_parent[scene_root_node]:
             node_obj = self.create_empty_object(node['id'], node['local_transform'][3], 'PLAIN_AXES', 35)
             node_obj.parent = obj_tree[scene_root_node]
             obj_tree[node['id']] = node_obj
 
-            if node['id'] in cached_nodes_by_parent.keys():
-                self.build_hierarchy(node['id'], cached_nodes_by_parent, obj_tree)
+            if node['id'] in nodes_by_parent.keys():
+                self.build_hierarchy(node['id'], nodes_by_parent, obj_tree)
 
     def build_hierarchy(self, parent_id, nodes_by_parent, obj_tree):
         for node in nodes_by_parent[parent_id]:

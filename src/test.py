@@ -8,50 +8,56 @@ from sod_utils import sod_io as sodio
 import time
 
 
-def test_sod_reader_writer_1():
-    print("=== testing sod parsing ===")
-    texture_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\Textures\\RGB'
-    file_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\SOD\\fbattle.sod'
+def parse_sod_and_dump(file_path: str, file_name):
+    print()
+    print(f"parsing {file_path}...")
 
     sod_io = sodio.SodIO()
     start_time = time.process_time_ns()
     sod = sod_io.read_file(file_path)
-    print(f"finished parsing in {time.process_time_ns() - start_time}ns")
+    print(f"finished parsing in {(time.process_time_ns() - start_time)/1e+6} ms")
 
-    with open('../dump/fbattle.json', 'w') as outfile:
+    with open(f'../dump/{file_name}.json', 'w') as outfile:
         json.dump(sod.to_dict(), outfile)
 
-    print("=== testing sod writer ===")
+    print("\nwriting sod...")
     start_time = time.process_time_ns()
-    sod_io.write_file(sod, '../dump/fbattle.sod')
-    print(f"finished writing in {time.process_time_ns() - start_time}ns")
+    sod_io.write_file(sod, f'../dump/{file_name}.sod')
+    print(f"finished writing in {(time.process_time_ns() - start_time)/1e+6} ms")
 
 
-def test_sod_reader_writer_2():
-    print("=== testing sod parsing ===")
-    texture_path = 'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\Textures\\RGB'
+def reparse_dumped_sod(file_name: str):
+    print()
+    print(f"re-parsing ../dump/{file_name}.sod...")
 
     sod_io = sodio.SodIO()
     start_time = time.process_time_ns()
-    sod = sod_io.read_file('../dump/fbattle.sod')
-    print(f"finished parsing in {time.process_time_ns() - start_time}ns")
+    sod = sod_io.read_file(f'../dump/{file_name}.sod')
+    print(f"finished parsing in {(time.process_time_ns() - start_time)/1e+6} ms")
 
-    with open('../dump/fbattle2.json', 'w') as outfile:
+    with open(f'../dump/{file_name}2.json', 'w') as outfile:
         json.dump(sod.to_dict(), outfile)
 
-    print("=== testing sod writer ===")
+    print("\nwriting sod...")
     start_time = time.process_time_ns()
-    sod_io.write_file(sod, '../dump/fbattle2.sod')
-    print(f"finished writing in {time.process_time_ns() - start_time}ns")
+    sod_io.write_file(sod, f'../dump/{file_name}2.sod')
+    print(f"finished writing in {(time.process_time_ns() - start_time)/1e+6} ms")
 
 
-def print_floats():
-    print(1.93)
-    print(float(numpy.float32(1.93)))
-    print(struct.unpack('<f', struct.pack('<f', 1.93))[0])
+def dump_sod(filename):
+    parse_sod_and_dump(f'D:\\Program Files (x86)\\Activision\\Star Trek Armada II\\SOD\\{filename}.sod', filename)
+    reparse_dumped_sod(filename)
+
+
+def print_floats(value):
+    print(value)
+    print(float(numpy.float32(value)))
+    print(struct.unpack('<f', struct.pack('<f', value))[0])
 
 
 if __name__ == '__main__':
-    test_sod_reader_writer_1()
-    test_sod_reader_writer_2()
-    print_floats()
+    # print_floats(1.93)
+    # dump_sod('fbattle')
+    # dump_sod('8472_mother')
+    dump_sod('fconst')
+
