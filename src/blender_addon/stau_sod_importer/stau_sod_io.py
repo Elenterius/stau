@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-# SOD IO
+# SOD IO Reader/Writer
 __author__ = 'Elenterius'
-__version__ = '1.3'
+__version__ = '1.4'
+# supports sod versions: 1.6 - 1.93
 
 # implemented based on:
 #   Storm3D Object Definition (SOD) File Format (Version 1.8)
@@ -12,9 +13,6 @@ import struct
 # uses tweaks from "Armada I/II SOD Importer V1.0.1 for 3dsMax" by Mr. Vulcan for reading SOD files with versions > 1.8
 from enum import IntEnum, Enum
 from typing import BinaryIO, List
-
-# data types in little-endian byte order
-import numpy
 
 
 class NodeType(Enum):
@@ -45,6 +43,7 @@ class Sod:
     def __init__(self, file_name, version=1.93):
         self._file_name = file_name
         self._version = version
+        self._unknown_legacy_data = None
         self.__materials = None
         self._nodes = None
         self._animation_transforms = None
@@ -56,9 +55,6 @@ class Sod:
     @property
     def name(self) -> str:
         return self._file_name
-
-    def get_version_as_float32(self):
-        return numpy.float32(self._version)
 
     def set_version(self, value: float):
         self._version = value
@@ -96,7 +92,7 @@ class Sod:
         return self._animation_tex_refs
 
     def to_dict(self):
-        return {
+        dict_ = {
             'file_name': self._file_name,
             'version': self._version,
             'materials': self.__materials,
@@ -104,9 +100,20 @@ class Sod:
             'anim_transforms': self._animation_transforms,
             'anim_textures': self._animation_tex_refs
         }
+        if self._version <= 1.81:
+            dict_["unknown_legacy_data"] = self._unknown_legacy_data
+        return dict_
+
+    def set_legacy_data(self, data):
+        self._unknown_legacy_data = data
+
+    @property
+    def unknown_legacy_data(self):
+        return self._unknown_legacy_data
 
 
 class SodIO:
+    # data types in little-endian byte order
     UINT8 = '<B'  # unsigned char (1 byte)
     UINT8_BYTES_SIZE = struct.calcsize(UINT8)
 
@@ -147,10 +154,12 @@ class SodIO:
                 if header_bytes == self.MAGIC_STRING:
 
                     self.curr_sod_version = self.read_float(binary_io)
-                    print('SOD Format Version:', numpy.float32(self.curr_sod_version))  # print version as float32 representation
+                    print('SOD Format Version:', '{:.2f}'.format(self.curr_sod_version))  # print version as float32 representation
 
-                    if self.curr_sod_version > 1.6001:  # 1.6 --> can't read fconst.sod
+                    if 1.6 <= self.curr_sod_version <= 1.93:
                         sod = Sod(file_name=file_path.split("\\")[-1], version=self.curr_sod_version)
+                        if self.curr_sod_version <= 1.81:
+                            sod.set_legacy_data(self.read_unknown_legacy_data(binary_io))
                         sod.set_materials(self.read_lighting_materials(binary_io))
                         sod.set_nodes(self.read_nodes(binary_io))
                         sod.set_animation_transforms(self.read_animation_transforms(binary_io))
@@ -165,10 +174,14 @@ class SodIO:
     def __write_sod(self, sod: Sod, file_path):
         binary_io: BinaryIO
         with open(file_path, "wb") as binary_io:
-            if self.curr_sod_version > 1.6001:
+            if 1.6 <= self.curr_sod_version <= 1.93:
                 binary_io.write(self.MAGIC_STRING)
-                print('targeting sod format version:', sod.get_version_as_float32())
+                print('targeting sod format version:', '{:.2f}'.format(sod.version))
                 self.write_float(sod.version, binary_io)
+
+                if self.curr_sod_version <= 1.81:
+                    self.write_unknown_legacy_data(sod.unknown_legacy_data, binary_io)
+
                 self.write_lighting_materials(sod.materials, binary_io)
                 self.write_nodes(sod.nodes, binary_io)
                 self.write_animation_transforms(sod.animation_transforms, binary_io)
@@ -416,10 +429,37 @@ class SodIO:
             typed_array.append(self.read_vertex_lighting_group(binary_file))
         return typed_array
 
+    def read_uint8_array(self, n_entries, binary_io: BinaryIO):
+        typed_array = []
+        for n in range(n_entries):
+            typed_array.append(self.read_uint8(binary_io))
+        return typed_array
+
+    def read_unknown_legacy_data(self, binary_io: BinaryIO):
+        data_list = []
+        data_count = self.read_uint16(binary_io)
+        for n in range(data_count):
+            data_list.append({
+                "id1": self.read_string(binary_io),
+                "id2": self.read_string(binary_io),
+                "unknown": self.read_uint8_array(7, binary_io)
+            })
+        return data_list
+
+    def write_unknown_legacy_data(self, legacy_data, binary_io: BinaryIO):
+        data_count = len(legacy_data)
+        self.write_uint16(data_count, binary_io)
+        for data in legacy_data:
+            self.write_string(data['id1'], binary_io)
+            self.write_string(data['id2'], binary_io)
+            for byte_ in data["unknown"]:
+                self.write_uint8(byte_, binary_io)
+
     def read_lighting_materials(self, binary_io: BinaryIO):
         n_lighting_mat = self.read_uint16(binary_io)
         materials = []
 
+        print(f'found {n_lighting_mat} materials')
         for i in range(0, n_lighting_mat):
             material = {
                 'name': self.read_string(binary_io),
@@ -520,7 +560,7 @@ class SodIO:
         alpha - Uses entire alpha channel. Object will require sorting, so will have performance implications.
         wireframe - Use wireframe graphics.
         """
-        mesh['texture_material'] = self.read_string(binary_io)  # 0 -> default
+        mesh['texture_material'] = self.read_string(binary_io) if self.curr_sod_version > 1.61 else "default"  # 0 -> default
 
         mesh['bump_map'] = 0
         if self.curr_sod_version > 1.9101:
@@ -568,7 +608,8 @@ class SodIO:
         return mesh
 
     def write_mesh_node(self, mesh: dict, binary_io: BinaryIO):
-        self.write_string(mesh['texture_material'], binary_io)
+        if self.curr_sod_version > 1.61:
+            self.write_string(mesh['texture_material'], binary_io)
 
         if self.curr_sod_version > 1.9101:
             self.write_uint32(0, binary_io)  # unused

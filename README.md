@@ -52,10 +52,13 @@ Try it out and let me know what doesn't works.
 ### Blender Addon [WIP]
 Import SOD models with all the hardpoints, etc.
 
+![](media/blender_addon_01.png)
+
 Blender Version: 2.8.x
 
 ##### TODO:
-- [ ] add sod export capabilities
+- [ ] add sod export capability
+- [ ] add animation import/export
 - [ ] remove hacky import & make it a proper addon
 
 # ODF Files
