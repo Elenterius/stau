@@ -10,7 +10,8 @@ from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper  # ImportHelper is a helper class, defines filename and invoke() function which calls the file selector.
 from .stau_sod_io import *
 from .stau_utils import *
-
+import numpy as np
+import mathutils
 
 class ImportSodData(Operator, ImportHelper):
     """Import SOD model files from Star Trek Armada I & II"""
@@ -120,7 +121,7 @@ class SodImporter:
             # raise Exception('InvalidNodeTypeError')
             return 99
 
-    def create_mesh_object(self, mesh_node):
+    def create_mesh_object(self, parent_transform, mesh_node):
 
         cull = mesh_node['data']['cull_type']
         blend_mode = mesh_node['data']['texture_material']
@@ -129,7 +130,10 @@ class SodImporter:
         suffix = '.tga' if lod in [0, 1, 99] else '_' + str(lod) + '.tga'
 
         tex = self.texture_folder + "\\" + mesh_node['data']['texture'] + suffix
-        tex_borg = self.texture_folder + "\\" + mesh_node['data']['borgification']['texture'] + suffix
+        if 'borgification' in mesh_node['data']:
+            tex_borg = self.texture_folder + "\\" + mesh_node['data']['borgification']['texture'] + suffix
+        else:
+            tex_borg = None
 
         vertices = mesh_node['data']['vertices']
         uvs = mesh_node['data']['texture_coordinates']
@@ -177,8 +181,18 @@ class SodImporter:
         # mesh
         mesh, obj = self.create_mesh(mesh_node['id'], vertices, faces)
 
+        # local transforms
         pos_xyz = mesh_node['local_transform'][3]
-        obj.location = [pos_xyz[0], pos_xyz[2], pos_xyz[1]]
+        # obj.location = (pos_xyz[0], pos_xyz[2], pos_xyz[1])  # swap z and y
+        obj.location = (pos_xyz[0], pos_xyz[1], pos_xyz[2])
+
+        m1 = self.create_transformation_matrix(mesh_node['local_transform'])
+
+        if parent_transform:
+            m2 = self.create_transformation_matrix(parent_transform)
+            m1 = m1.__matmul__(m2)
+
+        obj.rotation_euler = m1.to_euler()
 
         # uvs
         self.create_uv_map(mesh, mesh_node['id'] + '_uvmap', uvs, faces, tex_indices)
@@ -195,10 +209,11 @@ class SodImporter:
             mesh.materials.append(material)
 
         # append extra borg material
-        for material_data in self.materials.values():
-            color = material_data['diffuse_color']
-            mat_base_borgified = self.create_material(mesh_node['id'] + '_mat_' + material_data['name'] + '_borgified', rgba=color, texture=tex_borg)
-            mesh.materials.append(mat_base_borgified)
+        if tex_borg:
+            for material_data in self.materials.values():
+                color = material_data['diffuse_color']
+                mat_base_borgified = self.create_material(mesh_node['id'] + '_mat_' + material_data['name'] + '_borgified', rgba=color, texture=tex_borg)
+                mesh.materials.append(mat_base_borgified)
 
         return obj
 
@@ -217,8 +232,9 @@ class SodImporter:
 
     def get_material_id_from_face_index(self, face_index):
         for material in self.materials.values():
-            if material['min_face_index'] <= face_index < material['max_face_index']:
-                return material['material_id']
+            if 'min_face_index' in material:
+                if material['min_face_index'] <= face_index < material['max_face_index']:
+                    return material['material_id']
         return 0
 
     def get_uv_from_face_and_vertex_index(self, faces, face_index, tex_indicies, vertex_index, uvs):
@@ -302,7 +318,7 @@ class SodImporter:
         bm.to_mesh(mesh)
 
     def create_mesh(self, name, vertices, faces):
-        mesh = bpy.data.meshes.new(name)
+        mesh = bpy.data.meshes.new("MESH_" + name)
         obj = bpy.data.objects.new(mesh.name, mesh)
 
         bpy.context.scene.collection.objects.link(obj)  # add to scene root
@@ -311,7 +327,7 @@ class SodImporter:
         mesh.from_pydata(vertices, [], faces)  # vertices, edges, faces
         return mesh, obj
 
-    def create_empty_object(self, name, pos_xyz, display_type, display_size):
+    def create_empty_object(self, name, parent_transform, local_transform, display_type, display_size):
         obj = bpy.data.objects.new(name, None)
         bpy.context.scene.collection.objects.link(obj)
 
@@ -319,19 +335,40 @@ class SodImporter:
         obj.empty_display_type = display_type  # PLAIN_AXES, ARROWS, CUBE, SPHERE, CIRCLE, SINGLE_ARROW, CONE, IMAGE
         obj.show_name = True
 
-        obj.location = [pos_xyz[0], pos_xyz[2], pos_xyz[1]]
+        # obj.location = (local_transform[3][0], local_transform[3][2], local_transform[3][1])  # swap z and y
+        obj.location = (local_transform[3][0], local_transform[3][1], local_transform[3][2])
+
+        m1 = self.create_transformation_matrix(local_transform)
+
+        if parent_transform:
+            m2 = self.create_transformation_matrix(parent_transform)
+            m1 = m1.__matmul__(m2)
+
+        obj.rotation_euler = m1.to_euler()
+
         return obj
+
+    def create_transformation_matrix(self, local_transform) -> mathutils.Matrix:
+        vec = np.array(local_transform[0:3])
+        for i in range(3):
+            vec[i, 0] *= -1
+            y = vec[i, 1]
+            vec[i, 1] = vec[i, 2]
+            vec[i, 2] = y
+        return mathutils.Matrix(vec)
 
     def build_scene_tree(self):
         obj_tree = {}
         scene_root_node = None
+        parent_transform = None
 
         nodes_by_parent = {}
         for node in self.nodes:
 
             if node['parent'] == '':  # Scene Root
                 scene_root_node = node['id']
-                node_obj = self.create_empty_object(node['id'], node['local_transform'][3], 'CUBE', 30)
+                parent_transform = node['local_transform']
+                node_obj = self.create_empty_object(node['type'] + "_" + node['id'], None, node['local_transform'], 'CUBE', 30)
                 obj_tree[node['id']] = node_obj
                 continue
 
@@ -341,23 +378,23 @@ class SodImporter:
             nodes_by_parent[node['parent']].append(node)
 
         for node in nodes_by_parent[scene_root_node]:
-            node_obj = self.create_empty_object(node['id'], node['local_transform'][3], 'PLAIN_AXES', 35)
+            node_obj = self.create_empty_object(node['type'] + "_" + node['id'], parent_transform, node['local_transform'], 'PLAIN_AXES', 35)
             node_obj.parent = obj_tree[scene_root_node]
             obj_tree[node['id']] = node_obj
 
             if node['id'] in nodes_by_parent.keys():
-                self.build_hierarchy(node['id'], nodes_by_parent, obj_tree)
+                self.build_hierarchy(node, nodes_by_parent, obj_tree)
 
-    def build_hierarchy(self, parent_id, nodes_by_parent, obj_tree):
-        for node in nodes_by_parent[parent_id]:
+    def build_hierarchy(self, parent_node, nodes_by_parent, obj_tree):
+        for node in nodes_by_parent[parent_node['id']]:
             child_obj = None
             if node['type'] == 'MESH':
-                child_obj = self.create_mesh_object(node)
+                child_obj = self.create_mesh_object(parent_node['local_transform'], node)
             else:
-                child_obj = self.create_empty_object(node['id'], node['local_transform'][3], 'CUBE', 0.25)
+                child_obj = self.create_empty_object(node['type'] + "_" + node['id'], parent_node['local_transform'], node['local_transform'], 'CUBE', 0.25)
 
-            child_obj.parent = obj_tree[parent_id]
+            child_obj.parent = obj_tree[parent_node['id']]
             obj_tree[node['id']] = child_obj
 
             if node['id'] in nodes_by_parent.keys():
-                self.build_hierarchy(node['id'], nodes_by_parent, obj_tree)
+                self.build_hierarchy(node, nodes_by_parent, obj_tree)

@@ -4,7 +4,7 @@ import bpy
 bl_info = {
     "name": "Storm3D SOD Format (.sod)",
     "author": "Elenterius",
-    "version": (0, 4),
+    "version": (0, 4, 1),
     "blender": (2, 80, 0),
     "location": "File > Import > Storm3D SOD",
     "description": "Importer/Exporter for model files from Star Trek Armada I & II",

@@ -2,7 +2,7 @@
 
 # SOD IO Reader/Writer
 __author__ = 'Elenterius'
-__version__ = '1.4'
+__version__ = '1.4.1'
 # supports sod versions: 1.6 - 1.93
 
 # implemented based on:
@@ -44,10 +44,15 @@ class Sod:
         self._file_name = file_name
         self._version = version
         self._unknown_legacy_data = None
-        self.__materials = None
+        self._materials = None
         self._nodes = None
         self._animation_transforms = None
         self._animation_tex_refs = None
+        self._meshes = None
+        self._hardpoints = None
+        self._damage = None
+        self._geometry = None
+        self._lights = None
 
     def set_name(self, name: str):
         self._file_name = name
@@ -64,18 +69,44 @@ class Sod:
         return self._version
 
     def set_materials(self, materials: List):
-        self.__materials = materials
+        self._materials = materials
 
     @property
     def materials(self):
-        return self.__materials
+        return self._materials
 
     def set_nodes(self, nodes: List):
         self._nodes = nodes
 
+        self._meshes = list()
+
+        self._hardpoints = list()
+        self._damage = list()
+        self._geometry = list()
+        self._lights = list()
+
+        for node in nodes:
+            if node['type'] == NodeType.MESH.name:
+                self._meshes.append(node)
+                continue
+
+            parent = node["parent"].lower()
+            if parent == "hardpoints":
+                self._hardpoints.append(node)
+            elif parent == "damage":
+                self._damage.append(node)
+            elif parent == "geometry":
+                self._geometry.append(node)
+            elif parent == "lights":
+                self._lights.append(node)
+
     @property
     def nodes(self):
         return self._nodes
+
+    @property
+    def meshes(self):
+        return self._meshes
 
     def set_animation_transforms(self, animation_transforms: List):
         self._animation_transforms = animation_transforms
@@ -95,7 +126,7 @@ class Sod:
         dict_ = {
             'file_name': self._file_name,
             'version': self._version,
-            'materials': self.__materials,
+            'materials': self._materials,
             'nodes': self._nodes,
             'anim_transforms': self._animation_transforms,
             'anim_textures': self._animation_tex_refs
@@ -110,6 +141,22 @@ class Sod:
     @property
     def unknown_legacy_data(self):
         return self._unknown_legacy_data
+
+    @property
+    def hardpoints(self):
+        return self._hardpoints
+
+    @property
+    def damage(self):
+        return self._damage
+
+    @property
+    def geometry(self):
+        return self._geometry
+
+    @property
+    def lights(self):
+        return self._lights
 
 
 class SodIO:
@@ -145,7 +192,7 @@ class SodIO:
         with open(file_path, "rb") as binary_io:
             binary_io.seek(0, 2)  # seek the end
             bytes_ = binary_io.tell()  # file size
-            print(f"reading {bytes_} bytes from input...")
+            print(f"reading {bytes_} bytes from file...")
 
             for i in range(bytes_):
                 binary_io.seek(i)
@@ -154,9 +201,10 @@ class SodIO:
                 if header_bytes == self.MAGIC_STRING:
 
                     self.curr_sod_version = self.read_float(binary_io)
-                    print('SOD Format Version:', '{:.2f}'.format(self.curr_sod_version))  # print version as float32 representation
+                    print('SOD Format Version:', '{:.2f}'.format(self.curr_sod_version), f'({self.curr_sod_version})')  # print version as float32 representation
 
-                    if 1.6 <= self.curr_sod_version <= 1.93:
+                    # noinspection PyChainedComparisons
+                    if self.curr_sod_version >= 1.6 and self.curr_sod_version <= 1.93:
                         sod = Sod(file_name=file_path.split("\\")[-1], version=self.curr_sod_version)
                         if self.curr_sod_version <= 1.81:
                             sod.set_legacy_data(self.read_unknown_legacy_data(binary_io))
@@ -174,7 +222,8 @@ class SodIO:
     def __write_sod(self, sod: Sod, file_path):
         binary_io: BinaryIO
         with open(file_path, "wb") as binary_io:
-            if 1.6 <= self.curr_sod_version <= 1.93:
+            # noinspection PyChainedComparisons
+            if self.curr_sod_version >= 1.6 and self.curr_sod_version <= 1.93:
                 binary_io.write(self.MAGIC_STRING)
                 print('targeting sod format version:', '{:.2f}'.format(sod.version))
                 self.write_float(sod.version, binary_io)
@@ -459,7 +508,6 @@ class SodIO:
         n_lighting_mat = self.read_uint16(binary_io)
         materials = []
 
-        print(f'found {n_lighting_mat} materials')
         for i in range(0, n_lighting_mat):
             material = {
                 'name': self.read_string(binary_io),
